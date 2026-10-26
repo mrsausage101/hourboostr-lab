@@ -1,0 +1,28 @@
+
+name: HourBoostr Test
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check runner
+        shell: pwsh
+        run: |
+          Write-Host "HourBoostr test started"
+          Write-Host "Date: $(Get-Date)"
+          Write-Host "OS: $([System.Environment]::OSVersion)"
+          Write-Host "Runner is working."
+
+      - name: Check .NET Framework
+        shell: pwsh
+        run: |
+          Get-ItemProperty `
+            'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' |
+            Select-Object Release, Version
