@@ -1,0 +1,92 @@
+
+name: HourBoostr Launch Test
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  launch-test:
+    runs-on: windows-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Download and verify official release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dir = "$env:RUNNER_TEMP\HourBoostr"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+
+          $archive = Join-Path $dir "Release.rar"
+          $url = "https://github.com/Ezzpify/HourBoostr/releases/download/3.2.1/Release.rar"
+
+          Invoke-WebRequest -Uri $url -OutFile $archive
+
+          $hash = (Get-FileHash $archive -Algorithm MD5).Hash
+          if ($hash -ne "6D4584F02318F4EC47302212FD65E0E1") {
+            throw "Archive checksum mismatch. Stopping."
+          }
+
+          Write-Host "Official archive checksum verified."
+
+          $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+
+          if (!$sevenZip) {
+            $candidate = "C:\Program Files\7-Zip\7z.exe"
+            if (Test-Path $candidate) {
+              $sevenZipPath = $candidate
+            } else {
+              choco install 7zip --no-progress -y
+              $sevenZipPath = "C:\Program Files\7-Zip\7z.exe"
+            }
+          } else {
+            $sevenZipPath = $sevenZip.Source
+          }
+
+          if (!(Test-Path $sevenZipPath)) {
+            throw "7-Zip was not found."
+          }
+
+          & $sevenZipPath x $archive "-o$dir" -y
+          if ($LASTEXITCODE -ne 0) {
+            throw "Archive extraction failed."
+          }
+
+          $exe = Join-Path $dir "HourBoostr.exe"
+          if (!(Test-Path $exe)) {
+            throw "HourBoostr.exe was not found after extraction."
+          }
+
+          $exeHash = (Get-FileHash $exe -Algorithm MD5).Hash
+          if ($exeHash -ne "14D147B084BEB8F4522338DD72B044DB") {
+            throw "Executable checksum mismatch. Stopping."
+          }
+
+          Write-Host "Archive extracted and executable verified."
+
+      - name: Test application startup
+        shell: pwsh
+        run: |
+          $exe = "$env:RUNNER_TEMP\HourBoostr\HourBoostr.exe"
+
+          $process = Start-Process `
+            -FilePath $exe `
+            -WorkingDirectory (Split-Path $exe) `
+            -PassThru
+
+          Start-Sleep -Seconds 20
+          $process.Refresh()
+
+          if ($process.HasExited) {
+            Write-Host "Process exited with code $($process.ExitCode)"
+            throw "HourBoostr exited during the startup test."
+          }
+
+          Write-Host "HourBoostr remained running for 20 seconds."
+          Stop-Process -Id $process.Id -Force
+          Write-Host "Startup test complete."
