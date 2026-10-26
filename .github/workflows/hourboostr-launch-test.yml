@@ -1,4 +1,4 @@
-name: HourBoostr Download Diagnostic
+name: HourBoostr
 
 on:
   workflow_dispatch:
@@ -9,34 +9,72 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
+  hourboostr:
     runs-on: windows-latest
+    timeout-minutes: 5
+
     steps:
-      - name: Download official release
+      - name: Download HourBoostr
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
           $url = "https://github.com/Ezzpify/HourBoostr/releases/download/3.2.1/Release.rar"
           $archive = Join-Path $env:RUNNER_TEMP "Release.rar"
+          $folder = Join-Path $env:RUNNER_TEMP "HourBoostr"
 
-          Write-Host "Downloading official HourBoostr release..."
           Invoke-WebRequest -Uri $url -OutFile $archive
 
-          if (!(Test-Path $archive)) {
-            throw "Download failed: archive was not created."
+          $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+
+          if (!(Test-Path $sevenZip)) {
+            throw "7-Zip was not found on the runner."
           }
 
-          $file = Get-Item $archive
-          $hash = (Get-FileHash $archive -Algorithm MD5).Hash
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          & $sevenZip x $archive "-o$folder" -y
 
-          Write-Host ""
-          Write-Host "========== DIAGNOSTIC RESULTS =========="
-          Write-Host "Downloaded archive MD5: $hash"
-          Write-Host "Downloaded archive size: $($file.Length) bytes"
-          Write-Host "Expected archive MD5: 6D4584F02318F4EC47302212FD65E0E1"
-          Write-Host "Expected archive size: 2901027 bytes"
-          Write-Host "========================================"
-          Write-Host ""
+          if ($LASTEXITCODE -ne 0) {
+            throw "Archive extraction failed."
+          }
 
-          throw "Diagnostic only. Stopped before extraction or execution."
+          $exe = Get-ChildItem $folder -Filter "HourBoostr.exe" -Recurse |
+            Select-Object -First 1
+
+          if (!$exe) {
+            throw "HourBoostr.exe was not found after extraction."
+          }
+
+          $expected = "14D147B084BEB8F4522338DD72B044DB"
+          $actual = (Get-FileHash $exe.FullName -Algorithm MD5).Hash
+
+          Write-Host "HourBoostr EXE MD5: $actual"
+
+          if ($actual -ne $expected) {
+            throw "Executable checksum mismatch. Stopping."
+          }
+
+          Write-Host "Executable checksum verified."
+
+          $exePath = $exe.FullName
+          "HOURBOOSTR_EXE=$exePath" >> $env:GITHUB_ENV
+
+      - name: Launch HourBoostr
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $process = Start-Process `
+            -FilePath $env:HOURBOOSTR_EXE `
+            -PassThru
+
+          Write-Host "HourBoostr started. PID: $($process.Id)"
+          Start-Sleep -Seconds 20
+
+          if (!$process.HasExited) {
+            Stop-Process -Id $process.Id -Force
+            Write-Host "Test finished; process stopped."
+          }
+          else {
+            Write-Host "HourBoostr exited on its own."
+          }
