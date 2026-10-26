@@ -4,25 +4,41 @@ name: HourBoostr Test
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 */6 * * *'
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     steps:
-      - name: Check runner
+      - name: Check Windows runner
         shell: pwsh
         run: |
           Write-Host "HourBoostr test started"
-          Write-Host "Date: $(Get-Date)"
-          Write-Host "OS: $([System.Environment]::OSVersion)"
-          Write-Host "Runner is working."
+          Write-Host "Date: $(Get-Date -Format o)"
+          Write-Host "OS: $([System.Environment]::OSVersion.VersionString)"
+          Write-Host "Architecture: $env:PROCESSOR_ARCHITECTURE"
 
       - name: Check .NET Framework
         shell: pwsh
         run: |
-          Get-ItemProperty `
-            'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' |
-            Select-Object Release, Version
+          $key = Get-ItemProperty `
+            "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full" `
+            -ErrorAction SilentlyContinue
+
+          if ($key) {
+            Write-Host "Installed .NET Framework release: $($key.Release)"
+            Write-Host "Installed .NET Framework version: $($key.Version)"
+          } else {
+            Write-Error ".NET Framework v4 Full was not found"
+            exit 1
+          }
+
+      - name: Finish test
+        shell: pwsh
+        run: |
+          Write-Host "SUCCESS: Windows runner and .NET check completed."
